@@ -365,15 +365,37 @@ async function loadFile(file) {
 }
 
 // Stats for the currently selected area (or all areas when -1)
+const GRID_M = 5; // metres — must match the per-area dedup grid in parseKml
 function activeStats() {
   const idx = parseInt(els.areaSelect.value, 10);
   if (idx >= 0 && state.areas && state.areas[idx] && state.areas[idx].total > 0) {
     const a = state.areas[idx];
     return { unique: a.unique, remaining: a.remaining, total: a.total, pct: a.pct };
   }
-  // Aggregate: unique km deduped globally is complex; sum area-uniques + remaining
+  // Aggregate: compute from segments directly — areas are NESTED in Wandrer
+  // exports (a big polygon can contain the rides of smaller ones), so summing
+  // per-area rows double-counts. Dedup globally on the same 5 m grid.
+  const seenU = new Set(); const seenR = new Set();
   let uniq = 0, rem = 0;
-  for (const a of (state.areas || [])) { uniq += a.unique; rem += a.remaining; }
+  for (const ln of state.lines) {
+    const p = ln.pts;
+    if (!p || p.length < 4) continue;
+    const isTrav = ln.bucket === 'traveled';
+    if (!isTrav && ln.bucket !== 'untraveled' && ln.bucket !== 'unpaved') continue;
+    for (let i = 0; i < p.length - 2; i += 2) {
+      const kax = Math.round(p[i]   * Math.cos(Math.asin(Math.tanh(p[i+1]/R))) / GRID_M);
+      const kay = Math.round(p[i+1] / GRID_M);
+      const kbx = Math.round(p[i+2] * Math.cos(Math.asin(Math.tanh(p[i+3]/R))) / GRID_M);
+      const kby = Math.round(p[i+3] / GRID_M);
+      if (kax===kbx && kay===kby) continue;
+      const key = kax<kbx||(kax===kbx&&kay<kby) ? `${kax},${kay}|${kbx},${kby}` : `${kbx},${kby}|${kax},${kay}`;
+      if (isTrav) {
+        if (!seenU.has(key)) { seenU.add(key); uniq += haversineKm(...invProj(p[i], p[i+1]), ...invProj(p[i+2], p[i+3])); }
+      } else {
+        if (!seenR.has(key)) { seenR.add(key); rem += haversineKm(...invProj(p[i], p[i+1]), ...invProj(p[i+2], p[i+3])); }
+      }
+    }
+  }
   const tot = uniq + rem;
   return { unique: uniq, remaining: rem, total: tot, pct: tot > 0 ? 100*uniq/tot : 0 };
 }
