@@ -32,9 +32,9 @@ const els = {};
 
 // ---------- themes ----------
 const THEMES = {
-  light: { bg:'#ffffff', text:'#1a1a1a', sub:'#888888', traveled:'#1a1a1a', untraveled:'#b0b0b0', unpaved:'#c8c8c8', osmRoad:'#d8d8d8' },
-  dark:  { bg:'#0e1117', text:'#e8e8e8', sub:'#777777', traveled:'#e8e8e8', untraveled:'#444444', unpaved:'#383838', osmRoad:'#252830' },
-  paper: { bg:'#f5f0e8', text:'#2a2420', sub:'#8a7c64', traveled:'#2a2420', untraveled:'#b5a890', unpaved:'#c8b898', osmRoad:'#d8d0c0' },
+  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#ffaa00', osmRoad:'#e2e4e8' },
+  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#ffb340', osmRoad:'#252b38' },
+  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#c9922d', osmRoad:'#dfd5c2' },
 };
 function currentTheme() {
   const t = els.theme.value;
@@ -46,7 +46,7 @@ function currentTheme() {
     unpaved: els.cUntraveledUnpaved.value,
     text: contrastColor(els.cBg.value),
     sub: contrastColor(els.cBg.value) === '#ffffff' ? '#9aa0aa' : '#777777',
-    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#d8d8d8' : '#252830',
+    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#e2e4e8' : '#252b38',
   };
 }
 function contrastColor(hex) {
@@ -79,9 +79,9 @@ const OSM_ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
 ];
 const OSM_WEIGHTS = {
-  motorway:5.0, trunk:4.0, primary:3.0, secondary:2.2, tertiary:1.6,
-  unclassified:1.2, residential:1.0, living_street:0.8, service:0.55,
-  track:0.45, cycleway:0.65, footway:0.4, path:0.3, bridleway:0.4,
+  motorway:2.8, trunk:2.2, primary:1.8, secondary:1.4, tertiary:1.1,
+  unclassified:0.85, residential:0.75, living_street:0.6, service:0.45,
+  track:0.4, cycleway:0.55, footway:0.35, path:0.3, bridleway:0.35,
 };
 const OSM_HIGHWAY_RE = /^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|cycleway|footway|path|bridleway)$/;
 
