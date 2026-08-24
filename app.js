@@ -27,7 +27,7 @@ const state = {
 const els = {};
 ['dropzone','fileInput','fileInfo','statsCard','statsBody','theme','customColors',
  'titleText','subtitleText','showStats','showBoundary','showOsm','osmStatus','areaSelect','areaRow','ovKm','ovPct','ovTotal','overrideRow','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
- 'lineWidth','zoomPad','mapFrac','downloadBtn','previewLink','recenterBtn','posterWrap',
+ 'lineWidth','zoomPad','downloadBtn','previewLink','recenterBtn','posterWrap',
  'poster','emptyState','toolbar','zoomLabel'].forEach(id => els[id] = document.getElementById(id));
 
 // ---------- themes ----------
@@ -440,8 +440,17 @@ function updateStats() {
 }
 function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-// ---------- view fitting ----------
-function mapFraction() { return els.mapFrac.value / 100; }
+function layoutRects(W, H) {
+  // Matched to gallery map art standard: 7.5% margins on sides/top, 18% on bottom for balanced typography
+  const marginSide = W * 0.075;
+  const marginTop = H * 0.055;
+  const marginBottom = H * 0.18;
+  const mapX = marginSide;
+  const mapY = marginTop;
+  const mapW = W - 2 * marginSide;
+  const mapH = H - marginTop - marginBottom;
+  return { mapX, mapY, mapW, mapH, marginSide, marginTop, marginBottom };
+}
 
 function fitTo(bb) {
   if (!bb) return;
@@ -450,8 +459,9 @@ function fitTo(bb) {
   const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
   const m = pad * Math.max(cw, ch);
   let w = cw + 2*m, h = ch + 2*m;
-  // match poster/map-area aspect
-  const A = POSTER_W_PX / (POSTER_H_PX * mapFraction());
+  // match the inner map frame aspect ratio
+  const layout = layoutRects(POSTER_W_PX, POSTER_H_PX);
+  const A = layout.mapW / layout.mapH;
   if (w/h < A) w = h * A; else h = w / A;
   state.baseView = { x: cx - w/2, y: cy - h/2, w, h };
   state.view = { ...state.baseView };
@@ -465,16 +475,25 @@ function render(ctx, W, H) {
   if (!state.lines.length && !state.polys.length) return;
   const th = currentTheme();
   const v = state.view;
-  const mapH = H * mapFraction();
+  const layout = layoutRects(W, H);
+  const { mapX, mapY, mapW, mapH } = layout;
   const showBoundary = els.showBoundary.checked;
 
+  // Background across the entire poster (white / cream / dark paper)
   ctx.fillStyle = th.bg;
   ctx.fillRect(0, 0, W, H);
 
-  const sx = W / v.w;
+  // Set up coordinate transform mapped strictly to the inner map viewport
+  const sx = mapW / v.w;
   const sy = mapH / v.h;
-  const tx = px => (px - v.x) * sx;
-  const ty = py => mapH - (py - v.y) * sy;
+  const tx = px => mapX + (px - v.x) * sx;
+  const ty = py => mapY + mapH - (py - v.y) * sy;
+
+  // Clip all map content to the inner bordered map frame
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(mapX, mapY, mapW, mapH);
+  ctx.clip();
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -565,10 +584,18 @@ function render(ctx, W, H) {
     ctx.stroke();
   }
 
-  drawTextBlock(ctx, W, H, mapH, th);
+  ctx.restore(); // end clip
+
+  // Draw crisp black border line around the map rectangle
+  const borderLineWidth = Math.max(1, H * 0.0015);
+  ctx.strokeStyle = th.text;
+  ctx.lineWidth = borderLineWidth;
+  ctx.strokeRect(mapX, mapY, mapW, mapH);
+
+  drawTextBlock(ctx, W, H, layout, th);
 }
 
-function drawTextBlock(ctx, W, H, mapH, th) {
+function drawTextBlock(ctx, W, H, layout, th) {
   const title = els.titleText.value.trim();
   const subtitle = els.subtitleText.value.trim();
   const s = displayStats();
@@ -576,16 +603,8 @@ function drawTextBlock(ctx, W, H, mapH, th) {
   const pctTxt = s.pct.toFixed(2);
   const wantStats = els.showStats.checked && s.total > 0;
   const statsLine = wantStats
-    ? `${kmTxt} km explored · ${pctTxt}% complete`
+    ? `${kmTxt} KM EXPLORED · ${pctTxt}% COMPLETE`
     : '';
-
-  const f = mapH / H;
-  const items = [];
-  if (title) items.push({ t: title.toUpperCase(), size: 0.028, color: th.text, weight: 600, track: 0.18 });
-  if (subtitle) items.push({ t: subtitle, size: 0.012, color: th.sub, weight: 400, track: 0.06 });
-  if (statsLine) items.push({ t: statsLine, size: 0.009, color: th.sub, weight: 400, track: 0.04 });
-
-  if (!items.length) return;
 
   const FONT = '"Helvetica Neue", Helvetica, Arial, -apple-system, "Segoe UI", Roboto, sans-serif';
 
@@ -594,7 +613,6 @@ function drawTextBlock(ctx, W, H, mapH, th) {
     ctx.font = font;
     ctx.fillStyle = color;
     if (align === 'center') {
-      // measure total width including spacing
       let total = 0;
       for (const ch of text) total += ctx.measureText(ch).width + spacing;
       x -= total / 2;
@@ -605,33 +623,44 @@ function drawTextBlock(ctx, W, H, mapH, th) {
     }
   }
 
-  if (f < 0.999) {
-    // dedicated band below the map — centered
-    const gap = 0.012 * H;
-    let total = 0;
-    for (const it of items) total += it.size * H * 1.3 + gap;
-    total -= gap;
-    let y = mapH + (H - mapH - total) / 2;
-    for (const it of items) {
-      const fs = it.size * H;
-      const font = `${it.weight} ${fs}px ${FONT}`;
-      const spacing = it.track * fs;
-      drawTracked(it.t, W / 2, y + fs * 0.85, font, it.color, spacing, 'center');
-      y += fs * 1.3 + gap;
-    }
-  } else {
-    // overlay bottom-center on the map
-    let y = H - 0.035 * H;
-    for (let i = items.length - 1; i >= 0; i--) {
-      const it = items[i];
-      const fs = it.size * H;
-      const font = `${it.weight} ${fs}px ${FONT}`;
-      const spacing = it.track * fs;
-      ctx.globalAlpha = 0.92;
-      drawTracked(it.t, W / 2, y, font, it.color, spacing, 'center');
-      y -= fs * 1.5;
-    }
-    ctx.globalAlpha = 1;
+  // Text zone sits in the white margin below the map border
+  const bottomZoneTop = layout.mapY + layout.mapH;
+  const bottomZoneHeight = layout.marginBottom;
+  const centerY = bottomZoneTop + bottomZoneHeight * 0.45;
+
+  const items = [];
+  // 1. Primary City Title (large, bold, wide tracking like the reference)
+  if (title) {
+    items.push({ t: title.toUpperCase(), size: 0.034, color: th.text, weight: 700, track: 0.28, lineHeight: 1.35 });
+  }
+  // 2. Subtitle / Country (medium, clean tracking)
+  if (subtitle) {
+    items.push({ t: subtitle.toUpperCase(), size: 0.011, color: th.text, weight: 500, track: 0.20, lineHeight: 1.5 });
+  }
+  // 3. Stats / Coordinates line (fine, refined tracking)
+  if (statsLine) {
+    items.push({ t: statsLine, size: 0.0085, color: th.sub, weight: 400, track: 0.16, lineHeight: 1.5 });
+  }
+
+  if (!items.length) return;
+
+  // Compute vertical stack centered in the bottom margin
+  let totalH = 0;
+  const heights = items.map(it => {
+    const fs = it.size * H;
+    const h = fs * it.lineHeight;
+    totalH += h;
+    return { fs, h };
+  });
+
+  let curY = centerY - totalH / 2;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const { fs, h } = heights[i];
+    const font = `${it.weight} ${fs}px ${FONT}`;
+    const spacing = it.track * fs;
+    drawTracked(it.t, W / 2, curY + fs * 0.9, font, it.color, spacing, 'center');
+    curY += h;
   }
 }
 
@@ -751,8 +780,9 @@ function setupPanZoom() {
   cv.addEventListener('pointermove', e => {
     if (!dragging || !state.view) return;
     const rect = cv.getBoundingClientRect();
-    const dx = (e.clientX - lastX) * state.view.w / rect.width;
-    const dy = (e.clientY - lastY) * state.view.h / rect.height;
+    const layout = layoutRects(rect.width, rect.height);
+    const dx = (e.clientX - lastX) * state.view.w / layout.mapW;
+    const dy = (e.clientY - lastY) * state.view.h / layout.mapH;
     lastX = e.clientX; lastY = e.clientY;
     state.view.x -= dx; state.view.y += dy;
     clampView();
@@ -766,8 +796,9 @@ function setupPanZoom() {
     if (!state.view) return;
     e.preventDefault();
     const rect = cv.getBoundingClientRect();
-    const fx = (e.clientX - rect.left) / rect.width;
-    const fy = (e.clientY - rect.top) / rect.height;
+    const layout = layoutRects(rect.width, rect.height);
+    const fx = (e.clientX - (rect.left + layout.mapX)) / layout.mapW;
+    const fy = (e.clientY - (rect.top + layout.mapY)) / layout.mapH;
     const px = state.view.x + fx * state.view.w;
     const py = state.view.y + (1 - fy) * state.view.h;
     const k = Math.pow(1.0015, e.deltaY);
@@ -832,10 +863,6 @@ els.ovTotal.addEventListener('input', () => { updateStats(); scheduleRender(); }
 
 let refitTimer = null;
 els.zoomPad.addEventListener('input', () => {
-  clearTimeout(refitTimer);
-  refitTimer = setTimeout(() => { fitView(); scheduleRender(); }, 80);
-});
-els.mapFrac.addEventListener('input', () => {
   clearTimeout(refitTimer);
   refitTimer = setTimeout(() => { fitView(); scheduleRender(); }, 80);
 });
