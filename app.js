@@ -74,6 +74,7 @@ function invProj(x, y) {
 
 // ---------- OSM basemap via Overpass API ----------
 const OSM_ENDPOINTS = [
+  '/api/osm',  // same-origin Vercel proxy (no CORS)
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
@@ -338,10 +339,11 @@ function render(ctx, W, H) {
   // visible bounds for culling
   const vx0 = v.x, vx1 = v.x + v.w, vy0 = v.y, vy1 = v.y + v.h;
 
-  // OSM basemap — draw all roads as muted background
+  // OSM basemap — draw all roads as muted background with cartographic casing
   if (state.osmRoads && els.showOsm && els.showOsm.checked) {
     const baseColor = th.osmRoad || '#d5d5d5';
-    const baseW = Math.max(lw * 0.5, 0.5);
+    const casingColor = th.bg;
+    const baseW = Math.max(lw * 0.45, 0.5);
     // group by rounded weight for batched strokes
     const groups = new Map();
     for (const road of state.osmRoads) {
@@ -352,10 +354,23 @@ function render(ctx, W, H) {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(road);
     }
+    // casing pass — thin bg-coloured halos separate overlapping streets
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = casingColor; ctx.globalAlpha = 1;
     for (const [kw, roads] of groups) {
-      ctx.strokeStyle = baseColor;
+      ctx.lineWidth = kw / 10 * 1.8 + 1;
+      ctx.beginPath();
+      for (const road of roads) {
+        const p = road.pts;
+        ctx.moveTo(tx(p[0]), ty(p[1]));
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i]));
+      }
+      ctx.stroke();
+    }
+    // fill pass — the actual road colour
+    ctx.strokeStyle = baseColor; ctx.globalAlpha = 0.85;
+    for (const [kw, roads] of groups) {
       ctx.lineWidth = kw / 10;
-      ctx.globalAlpha = 0.6;
       ctx.beginPath();
       for (const road of roads) {
         const p = road.pts;
