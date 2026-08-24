@@ -19,19 +19,22 @@ const state = {
   baseView: null,   // fitted view {x,y,w,h}
   view: null,
   fileName: null,
+  osmRoads: null,   // [{cls, pts: Float64Array, bbox}] fetched from Overpass
+  osmLoading: false,
+  osmError: null,
 };
 
 const els = {};
 ['dropzone','fileInput','fileInfo','statsCard','statsBody','theme','customColors',
- 'titleText','subtitleText','showStats','showBoundary','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
+ 'titleText','subtitleText','showStats','showBoundary','showOsm','osmStatus','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
  'lineWidth','zoomPad','mapFrac','downloadBtn','previewLink','recenterBtn','posterWrap',
  'poster','emptyState','toolbar','zoomLabel'].forEach(id => els[id] = document.getElementById(id));
 
 // ---------- themes ----------
 const THEMES = {
-  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#ffaa00' },
-  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#ffb340' },
-  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#c9922d' },
+  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#ffaa00', osmRoad:'#d5d5d5' },
+  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#ffb340', osmRoad:'#2a2e38' },
+  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#c9922d', osmRoad:'#c8bfa8' },
 };
 function currentTheme() {
   const t = els.theme.value;
@@ -43,6 +46,7 @@ function currentTheme() {
     unpaved: els.cUntraveledUnpaved.value,
     text: contrastColor(els.cBg.value),
     sub: contrastColor(els.cBg.value) === '#ffffff' ? '#9aa0aa' : '#777777',
+    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#2a2e38' : '#d5d5d5',
   };
 }
 function contrastColor(hex) {
@@ -62,6 +66,70 @@ function haversineKm(lon1, lat1, lon2, lat2) {
   const a = Math.sin(dLat/2)**2 +
             Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return 2 * 6371 * Math.asin(Math.sqrt(a));
+}
+function invProj(x, y) {
+  return [x / R * 180/Math.PI,
+          (2*Math.atan(Math.exp(y/R)) - Math.PI/2) * 180/Math.PI];
+}
+
+// ---------- OSM basemap via Overpass API ----------
+const OSM_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+const OSM_WEIGHTS = {
+  motorway:2.0, trunk:1.7, primary:1.4, secondary:1.15, tertiary:1.0,
+  unclassified:0.85, residential:0.75, living_street:0.6, service:0.45,
+  track:0.4, cycleway:0.55, footway:0.35, path:0.3, bridleway:0.35,
+};
+const OSM_HIGHWAY_RE = /^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|cycleway|footway|path|bridleway)$/;
+
+async function fetchOsmRoads() {
+  const bb = state.bbox;
+  if (!bb) return;
+  state.osmLoading = true; state.osmError = null;
+  if (els.osmStatus) els.osmStatus.textContent = 'Fetching road network from OpenStreetMap…';
+  scheduleRender();
+  const [wLon,sLat] = invProj(bb.minX, bb.minY);
+  const [eLon,nLat] = invProj(bb.maxX, bb.maxY);
+  const pad = Math.max(nLat-sLat, eLon-wLon) * 0.2;
+  const bbox = `${(sLat-pad).toFixed(5)},${(wLon-pad).toFixed(5)},${(nLat+pad).toFixed(5)},${(eLon+pad).toFixed(5)}`;
+  const query = `[out:json][timeout:30];(way["highway"~"^(${OSM_HIGHWAY_RE.source.replace(/^\^|\$$/g,'')})$"](${bbox}););out geom;`;
+  let data = null;
+  for (const ep of OSM_ENDPOINTS) {
+    try {
+      const r = await fetch(ep, { method:'POST', body:`data=${encodeURIComponent(query)}`, headers:{'Content-Type':'application/x-www-form-urlencoded'} });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      data = await r.json(); break;
+    } catch(e) { console.warn('Overpass', ep, e); }
+  }
+  if (!data || !data.elements) {
+    state.osmLoading = false; state.osmError = 'Could not reach Overpass API';
+    if (els.osmStatus) els.osmStatus.innerHTML = '<span style="color:#e05252">⚠ Road network unavailable</span>';
+    scheduleRender(); return;
+  }
+  const roads = [];
+  for (const el of data.elements) {
+    if (el.type !== 'way' || !el.geometry) continue;
+    const cls = el.tags?.highway || 'residential';
+    const flat = [];
+    for (const pt of el.geometry) {
+      const [x,y] = proj(pt.lon, pt.lat);
+      flat.push(x,y);
+    }
+    if (flat.length >= 4) {
+      let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+      for(let i=0;i<flat.length;i+=2){
+        if(flat[i]<mnx)mnx=flat[i]; if(flat[i]>mxx)mxx=flat[i];
+        if(flat[i+1]<mny)mny=flat[i+1]; if(flat[i+1]>mxy)mxy=flat[i+1];
+      }
+      roads.push({ cls, pts:new Float64Array(flat), bbox:[mnx,mny,mxx,mxy] });
+    }
+  }
+  state.osmRoads = roads;
+  state.osmLoading = false;
+  if (els.osmStatus) els.osmStatus.textContent = `${roads.length.toLocaleString()} roads loaded from OSM`;
+  scheduleRender();
 }
 
 // ---------- KML parsing ----------
@@ -215,6 +283,7 @@ async function loadFile(file) {
       <div>Remaining · unpaved <b>${fmt(s.untraveledUnpaved)} km</b></div>
       <div>Completed <b>${s.pct.toFixed(1)}%</b></div>`;
     scheduleRender();
+    fetchOsmRoads(); // async — renders basemap when done
   } catch (err) {
     console.error(err);
     els.fileInfo.innerHTML = `<span style="color:#e05252">⚠ ${escapeHtml(err.message)}</span>`;
@@ -268,6 +337,35 @@ function render(ctx, W, H) {
 
   // visible bounds for culling
   const vx0 = v.x, vx1 = v.x + v.w, vy0 = v.y, vy1 = v.y + v.h;
+
+  // OSM basemap — draw all roads as muted background
+  if (state.osmRoads && els.showOsm && els.showOsm.checked) {
+    const baseColor = th.osmRoad || '#d5d5d5';
+    const baseW = Math.max(lw * 0.5, 0.5);
+    // group by rounded weight for batched strokes
+    const groups = new Map();
+    for (const road of state.osmRoads) {
+      const [a,b,c,d] = road.bbox;
+      if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
+      const w = (OSM_WEIGHTS[road.cls] || 0.8) * baseW;
+      const key = Math.round(w * 10);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(road);
+    }
+    for (const [kw, roads] of groups) {
+      ctx.strokeStyle = baseColor;
+      ctx.lineWidth = kw / 10;
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      for (const road of roads) {
+        const p = road.pts;
+        ctx.moveTo(tx(p[0]), ty(p[1]));
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i]));
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
 
   for (const bucket of BUCKET_ORDER) {
     const themed = th[bucket];
@@ -539,6 +637,7 @@ els.showBoundary.addEventListener('change', () => {
   fitTo(els.showBoundary.checked ? (state.fullBbox || state.bbox) : state.bbox);
   scheduleRender();
 });
+if (els.showOsm) els.showOsm.addEventListener('change', scheduleRender);
 for (const id of ['titleText','subtitleText','showStats'])
   els[id].addEventListener('input', scheduleRender);
 
