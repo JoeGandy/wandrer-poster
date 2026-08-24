@@ -29,7 +29,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         data=f'data={urllib.parse.quote(query)}'.encode(),
                         headers={'Content-Type': 'application/x-www-form-urlencoded',
                                  'User-Agent': 'WandrerPoster/1.0'})
-                    with urllib.request.urlopen(req, timeout=90) as r:
+                    with urllib.request.urlopen(req, timeout=28) as r:
                         data = r.read()
                     break
                 except Exception as e:

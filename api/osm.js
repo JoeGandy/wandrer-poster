@@ -4,6 +4,7 @@ const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
+const PER_ENDPOINT_TIMEOUT = 28_000;
 
 module.exports = async (req, res) => {
   // CORS preflight
@@ -32,7 +33,7 @@ module.exports = async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'WandrerPoster/1.0' },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(PER_ENDPOINT_TIMEOUT),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       data = await r.json();

@@ -32,9 +32,9 @@ const els = {};
 
 // ---------- themes ----------
 const THEMES = {
-  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#ffaa00', osmRoad:'#d5d5d5' },
-  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#ffb340', osmRoad:'#2a2e38' },
-  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#c9922d', osmRoad:'#c8bfa8' },
+  light: { bg:'#ffffff', text:'#1a1a1a', sub:'#888888', traveled:'#1a1a1a', untraveled:'#b0b0b0', unpaved:'#c8c8c8', osmRoad:'#d8d8d8' },
+  dark:  { bg:'#0e1117', text:'#e8e8e8', sub:'#777777', traveled:'#e8e8e8', untraveled:'#444444', unpaved:'#383838', osmRoad:'#252830' },
+  paper: { bg:'#f5f0e8', text:'#2a2420', sub:'#8a7c64', traveled:'#2a2420', untraveled:'#b5a890', unpaved:'#c8b898', osmRoad:'#d8d0c0' },
 };
 function currentTheme() {
   const t = els.theme.value;
@@ -46,7 +46,7 @@ function currentTheme() {
     unpaved: els.cUntraveledUnpaved.value,
     text: contrastColor(els.cBg.value),
     sub: contrastColor(els.cBg.value) === '#ffffff' ? '#9aa0aa' : '#777777',
-    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#2a2e38' : '#d5d5d5',
+    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#d8d8d8' : '#252830',
   };
 }
 function contrastColor(hex) {
@@ -79,34 +79,55 @@ const OSM_ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
 ];
 const OSM_WEIGHTS = {
-  motorway:2.0, trunk:1.7, primary:1.4, secondary:1.15, tertiary:1.0,
-  unclassified:0.85, residential:0.75, living_street:0.6, service:0.45,
-  track:0.4, cycleway:0.55, footway:0.35, path:0.3, bridleway:0.35,
+  motorway:5.0, trunk:4.0, primary:3.0, secondary:2.2, tertiary:1.6,
+  unclassified:1.2, residential:1.0, living_street:0.8, service:0.55,
+  track:0.45, cycleway:0.65, footway:0.4, path:0.3, bridleway:0.4,
 };
 const OSM_HIGHWAY_RE = /^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|cycleway|footway|path|bridleway)$/;
 
 async function fetchOsmRoads() {
   const bb = state.bbox;
-  if (!bb) return;
+  if (!bb || state.osmLoading) return;
   state.osmLoading = true; state.osmError = null;
-  if (els.osmStatus) els.osmStatus.textContent = 'Fetching road network from OpenStreetMap…';
-  scheduleRender();
+  els.osmStatus.textContent = 'Fetching road network from OpenStreetMap…';
+  const t0 = Date.now();
   const [wLon,sLat] = invProj(bb.minX, bb.minY);
   const [eLon,nLat] = invProj(bb.maxX, bb.maxY);
   const pad = Math.max(nLat-sLat, eLon-wLon) * 0.2;
   const bbox = `${(sLat-pad).toFixed(5)},${(wLon-pad).toFixed(5)},${(nLat+pad).toFixed(5)},${(eLon+pad).toFixed(5)}`;
   const query = `[out:json][timeout:30];(way["highway"~"^(${OSM_HIGHWAY_RE.source.replace(/^\^|\$$/g,'')})$"](${bbox}););out geom;`;
+
   let data = null;
-  for (const ep of OSM_ENDPOINTS) {
+  for (let i = 0; i < OSM_ENDPOINTS.length; i++) {
+    const ep = OSM_ENDPOINTS[i];
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000); // hard cap per attempt
     try {
-      const r = await fetch(ep, { method:'POST', body:`data=${encodeURIComponent(query)}`, headers:{'Content-Type':'application/x-www-form-urlencoded'} });
+      if (i > 0) els.osmStatus.textContent = `Overpass is slow — trying backup source (${i+1}/${OSM_ENDPOINTS.length})…`;
+      const r = await fetch(ep, {
+        method:'POST',
+        body:`data=${encodeURIComponent(query)}`,
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        signal: ctrl.signal,
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      data = await r.json(); break;
-    } catch(e) { console.warn('Overpass', ep, e); }
+      data = await r.json();
+      break;
+    } catch(e) {
+      console.warn('OSM source failed:', ep, e.message || e);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  state.osmLoading = false;
   if (!data || !data.elements) {
-    state.osmLoading = false; state.osmError = 'Could not reach Overpass API';
-    if (els.osmStatus) els.osmStatus.innerHTML = '<span style="color:#e05252">⚠ Road network unavailable</span>';
+    state.osmError = 'unavailable';
+    els.osmStatus.innerHTML =
+      '<span style="color:#e05252">⚠ Road network unavailable</span> · ' +
+      '<a href="#" id="osmRetry" style="color:var(--accent2)">Retry</a>';
+    const retry = document.getElementById('osmRetry');
+    if (retry) retry.addEventListener('click', ev => { ev.preventDefault(); fetchOsmRoads(); });
     scheduleRender(); return;
   }
   const roads = [];
@@ -128,8 +149,7 @@ async function fetchOsmRoads() {
     }
   }
   state.osmRoads = roads;
-  state.osmLoading = false;
-  if (els.osmStatus) els.osmStatus.textContent = `${roads.length.toLocaleString()} roads loaded from OSM`;
+  if (els.osmStatus) els.osmStatus.textContent = `${roads.length.toLocaleString()} roads loaded from OSM in ${((Date.now()-t0)/1000).toFixed(1)}s`;
   scheduleRender();
 }
 
@@ -339,9 +359,9 @@ function render(ctx, W, H) {
   // visible bounds for culling
   const vx0 = v.x, vx1 = v.x + v.w, vy0 = v.y, vy1 = v.y + v.h;
 
-  // OSM basemap — draw all roads as muted background with cartographic casing
+  // OSM basemap — full road network with cartographic weight hierarchy
   if (state.osmRoads && els.showOsm && els.showOsm.checked) {
-    const baseColor = th.osmRoad || '#d5d5d5';
+    const roadColor = th.osmRoad || '#d8d8d8';
     const casingColor = th.bg;
     const baseW = Math.max(lw * 0.45, 0.5);
     // group by rounded weight for batched strokes
@@ -349,16 +369,16 @@ function render(ctx, W, H) {
     for (const road of state.osmRoads) {
       const [a,b,c,d] = road.bbox;
       if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
-      const w = (OSM_WEIGHTS[road.cls] || 0.8) * baseW;
+      const w = (OSM_WEIGHTS[road.cls] || 1.0) * baseW;
       const key = Math.round(w * 10);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(road);
     }
-    // casing pass — thin bg-coloured halos separate overlapping streets
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // casing pass — white halos separate overlapping streets
     ctx.strokeStyle = casingColor; ctx.globalAlpha = 1;
     for (const [kw, roads] of groups) {
-      ctx.lineWidth = kw / 10 * 1.8 + 1;
+      ctx.lineWidth = kw / 10 * 1.3 + 0.5;
       ctx.beginPath();
       for (const road of roads) {
         const p = road.pts;
@@ -367,8 +387,8 @@ function render(ctx, W, H) {
       }
       ctx.stroke();
     }
-    // fill pass — the actual road colour
-    ctx.strokeStyle = baseColor; ctx.globalAlpha = 0.85;
+    // fill pass — the road colour
+    ctx.strokeStyle = roadColor; ctx.globalAlpha = 1;
     for (const [kw, roads] of groups) {
       ctx.lineWidth = kw / 10;
       ctx.beginPath();
@@ -430,47 +450,57 @@ function drawTextBlock(ctx, W, H, mapH, th) {
 
   const f = mapH / H;
   const items = [];
-  if (title) items.push({ t: title, size: 0.030, color: th.text, weight: 700 });
-  if (subtitle) items.push({ t: subtitle, size: 0.0135, color: th.sub, weight: 500 });
-  if (statsLine) items.push({ t: statsLine, size: 0.0105, color: th.sub, weight: 500 });
+  if (title) items.push({ t: title.toUpperCase(), size: 0.028, color: th.text, weight: 600, track: 0.18 });
+  if (subtitle) items.push({ t: subtitle, size: 0.012, color: th.sub, weight: 400, track: 0.06 });
+  if (statsLine) items.push({ t: statsLine, size: 0.009, color: th.sub, weight: 400, track: 0.04 });
 
   if (!items.length) return;
 
+  const FONT = '"Helvetica Neue", Helvetica, Arial, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+  // helper: draw text with manual letter-spacing
+  function drawTracked(text, x, y, font, color, spacing, align) {
+    ctx.font = font;
+    ctx.fillStyle = color;
+    if (align === 'center') {
+      // measure total width including spacing
+      let total = 0;
+      for (const ch of text) total += ctx.measureText(ch).width + spacing;
+      x -= total / 2;
+    }
+    for (const ch of text) {
+      ctx.fillText(ch, x, y);
+      x += ctx.measureText(ch).width + spacing;
+    }
+  }
+
   if (f < 0.999) {
-    // dedicated band below the map
-    const gap = 0.010 * H;
+    // dedicated band below the map — centered
+    const gap = 0.012 * H;
     let total = 0;
-    for (const it of items) total += it.size * H * 1.18 + gap;
+    for (const it of items) total += it.size * H * 1.3 + gap;
     total -= gap;
     let y = mapH + (H - mapH - total) / 2;
-    ctx.textAlign = 'center';
     for (const it of items) {
       const fs = it.size * H;
-      ctx.font = `${it.weight} ${fs}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = it.color;
-      ctx.fillText(it.t, W/2, y + fs * 0.85, W * 0.92);
-      y += fs * 1.18 + gap;
+      const font = `${it.weight} ${fs}px ${FONT}`;
+      const spacing = it.track * fs;
+      drawTracked(it.t, W / 2, y + fs * 0.85, font, it.color, spacing, 'center');
+      y += fs * 1.3 + gap;
     }
   } else {
-    // overlay bottom-left on the map
-    ctx.textAlign = 'left';
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = H * 0.004;
-    ctx.shadowOffsetY = H * 0.0015;
-    let y = H - 0.040 * H;
+    // overlay bottom-center on the map
+    let y = H - 0.035 * H;
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
-      const fs = it.size * H * (i === 0 && items.length > 1 ? 1 : 0.9);
-      ctx.font = `${it.weight} ${fs}px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = it.color;
-      ctx.globalAlpha = 0.96;
-      ctx.fillText(it.t, 0.045 * W, y, W * 0.9);
-      y -= fs * 1.3;
+      const fs = it.size * H;
+      const font = `${it.weight} ${fs}px ${FONT}`;
+      const spacing = it.track * fs;
+      ctx.globalAlpha = 0.92;
+      drawTracked(it.t, W / 2, y, font, it.color, spacing, 'center');
+      y -= fs * 1.5;
     }
     ctx.globalAlpha = 1;
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
   }
 }
 
