@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wandrer Poster — KMZ → 50×70cm print</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --border: #262c38;
+    --text: #e6e9ef;
+    --muted: #9aa3b2;
+    --accent: #4caf7d;
+    --accent2: #4a9eff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 20px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .sub a { color: var(--accent2); text-decoration: none; }
+  header .sub a:hover { text-decoration: underline; }
+
+  .layout { display: flex; height: calc(100vh - 63px); }
+  @media (max-width: 900px) { .layout { flex-direction: column; height: auto; } }
+
+  aside {
+    width: 340px;
+    min-width: 300px;
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  @media (max-width: 900px) { aside { width: auto; border-right: none; border-bottom: 1px solid var(--border); } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card h2 { margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+  label.row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 8px 0; gap: 10px; }
+  select, input[type=number] {
+    background: #0d1017;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+  label.row select, label.row input[type=number] { width: 150px; }
+  input[type=color] { width: 42px; height: 30px; border: 1px solid var(--border); border-radius: 6px; padding: 0; background: none; cursor: pointer; }
+  input[type=range] { width: 150px; accent-color: var(--accent); }
+
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 26px 14px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    font-size: 14px;
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(76,175,125,0.06); }
+  .dropzone strong { color: var(--text); }
+  #fileInfo { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  #fileInfo b { color: var(--text); }
+
+  button.primary {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+  }
+  button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  button.secondary {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button.secondary:hover { background: rgba(255,255,255,0.04); }
+  a.secondary {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+  }
+  a.secondary:hover { background: rgba(255,255,255,0.04); }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.55; margin-top: 8px; }
+  .stats { font-size: 13px; line-height: 1.7; width: 100%; }
+  .stats div { border-bottom: 1px dashed var(--border); padding: 3px 0; overflow: hidden; }
+  .stats b { float: right; font-weight: 600; }
+
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    background:
+      radial-gradient(1200px 600px at 70% 20%, rgba(74,158,255,0.05), transparent),
+      var(--bg);
+  }
+  .preview-toolbar {
+    padding: 12px 24px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 12px;
+    flex-wrap: wrap;
+  }
+  .poster-wrap {
+    margin: 0 auto 40px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.4);
+    border-radius: 3px;
+    position: relative;
+    line-height: 0;
+    max-width: calc(100% - 48px);
+  }
+  canvas#poster { max-width: 100%; height: auto; display: block; border-radius: 3px; }
+  .empty-state {
+    margin: auto;
+    text-align: center;
+    color: var(--muted);
+    line-height: 1.8;
+    padding: 40px;
+  }
+  .empty-state .big { font-size: 44px; }
+  footer { padding: 14px 24px; font-size: 11px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wandrer Poster</h1>
+  <span class="sub">Turn your <a href="https://wandrer.earth/" target="_blank" rel="noopener">wandrer.earth</a> KMZ export into a print-ready 50×70cm poster</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="card">
+      <h2>1 · Upload</h2>
+      <div class="dropzone" id="dropzone">
+        <strong>Drop your .kmz here</strong><br>or click to browse
+      </div>
+      <input type="file" id="fileInput" accept=".kmz,.kml" style="display:none">
+      <div id="fileInfo"></div>
+    </div>
+
+    <div class="card" id="statsCard" hidden>
+      <h2>Ride stats</h2>
+      <div class="stats" id="statsBody"></div>
+    </div>
+
+    <div class="card">
+      <h2>2 · Style</h2>
+      <label class="row">Theme
+        <select id="theme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="paper">Vintage paper</option>
+          <option value="custom">Custom…</option>
+        </select>
+      </label>
+      <label class="row">Title
+        <input type="text" id="titleText" style="width:150px" maxlength="60" placeholder="(none)">
+      </label>
+      <label class="row">Subtitle
+        <input type="text" id="subtitleText" style="width:150px" maxlength="80" placeholder="(none)">
+      </label>
+      <label class="row">Show ride stats
+        <input type="checkbox" id="showStats" checked style="width:auto">
+      </label>
+
+      <div id="customColors" hidden>
+        <label class="row"><span><input type="color" id="cBg" value="#ffffff"> Background</span></label>
+        <label class="row"><span><input type="color" id="cTraveled" value="#4caf7d"> Traveled roads</span></label>
+        <label class="row"><span><input type="color" id="cUntraveledPaved" value="#e05252"> Untraveled (paved)</span></label>
+        <label class="row"><span><input type="color" id="cUntraveledUnpaved" value="#e0a23c"> Untraveled (unpaved)</span></label>
+      </div>
+
+      <label class="row">Show area boundaries
+        <input type="checkbox" id="showBoundary" style="width:auto">
+      </label>
+      <label class="row">Road weight <input type="range" id="lineWidth" min="0.3" max="3" step="0.05" value="1.0"></label>
+      <label class="row">Zoom / crop <input type="range" id="zoomPad" min="0" max="25" step="0.5" value="4"></label>
+      <label class="row">Map area height <input type="range" id="mapFrac" min="55" max="100" step="1" value="100"></label>
+      <div class="hint">Zoom crops inward from the tight bounding box. Map area below 100% leaves room at the bottom for stats &amp; title.</div>
+    </div>
+
+    <button class="primary" id="downloadBtn" disabled>&nbsp;Download PNG&nbsp;</button>
+    <a class="secondary" id="previewLink" target="_blank" rel="noopener" hidden>Open full-resolution preview</a>
+    <button class="secondary" id="recenterBtn" disabled>Reset view (fit all)</button>
+
+    <div class="card">
+      <h2>Print specs</h2>
+      <div class="hint" id="printSpecs">
+        Output: 5906 × 8268 px @ 300 DPI — exactly 50×70 cm.<br>
+        PNG includes pHYs DPI metadata so printers and labs read the true size.
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="empty-state" id="emptyState">
+      <div class="big">🗺️</div>
+      <p><b>No file loaded.</b><br>
+      Export your ride from wandrer.earth (Progress → Download KMZ)<br>
+      then drop the file here to see your poster preview.</p>
+    </div>
+    <div class="poster-wrap" id="posterWrap" hidden>
+      <canvas id="poster"></canvas>
+    </div>
+    <div class="preview-toolbar" id="toolbar" hidden>
+      <span id="zoomLabel"></span>
+    </div>
+  </main>
+</div>
+
+<script src="vendor/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
