@@ -32,9 +32,9 @@ const els = {};
 
 // ---------- themes ----------
 const THEMES = {
-  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#c01c28', osmRoad:'#e2e4e8' },
-  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#e04747', osmRoad:'#252b38' },
-  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#bf4b36', osmRoad:'#dfd5c2' },
+  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#c01c28', osmRoad:'#d0d2d6' },
+  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#e04747', osmRoad:'#2a3040' },
+  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#bf4b36', osmRoad:'#d5cbb5' },
 };
 function currentTheme() {
   const t = els.theme.value;
@@ -46,7 +46,7 @@ function currentTheme() {
     unpaved: els.cUntraveledUnpaved.value,
     text: contrastColor(els.cBg.value),
     sub: contrastColor(els.cBg.value) === '#ffffff' ? '#9aa0aa' : '#777777',
-    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#e2e4e8' : '#252b38',
+    osmRoad: contrastColor(els.cBg.value) === '#ffffff' ? '#d0d2d6' : '#2a3040',
   };
 }
 function contrastColor(hex) {
@@ -510,7 +510,7 @@ function render(ctx, W, H) {
   if (state.osmRoads && els.showOsm && els.showOsm.checked) {
     const roadColor = th.osmRoad || '#d8d8d8';
     const casingColor = th.bg;
-    const baseW = Math.max(lw * 0.45, 0.5);
+    const baseW = Math.max(lw * 0.55, 0.6);
     // group by rounded weight for batched strokes
     const groups = new Map();
     for (const road of state.osmRoads) {
