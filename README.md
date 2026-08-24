@@ -20,7 +20,7 @@ so printers read it as exactly 50 × 70 cm with no scaling needed.
 - Drag & drop KMZ/KML parsing (JSZip, vendored)
 - True 300 DPI canvas rendering at exact physical dimensions
 - Themes: light / dark / vintage paper / fully custom colours
-- Optional title, subtitle and ride stats band ("123 km ridden · 87.3% complete")
+- Optional title, subtitle and stats band ("123 km explored · 87.3% complete")
 - Road weight in real millimetres on paper
 - Zoom/crop control plus pan & wheel-zoom on the preview
 - Optional achievement-area boundary overlay (off by default — some Wandrer

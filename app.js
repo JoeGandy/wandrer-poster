@@ -385,7 +385,7 @@ function updateStats() {
   const hasOv = isFinite(ovKm) || isFinite(ovPct);
   els.overrideRow.hidden = !state.stats;
   els.statsBody.innerHTML = `
-    <div>Unique ridden <b>${isFinite(ovKm) ? ovKm.toFixed(2) : fmt(s.unique)} km${hasOv ? '*' : ''}</b></div>
+    <div>Unique km <b>${isFinite(ovKm) ? ovKm.toFixed(2) : fmt(s.unique)}${hasOv ? '*' : ''}</b></div>
     <div>Remaining <b>${fmt(s.remaining)} km</b></div>
     <div>Total network <b>${fmt(s.total)} km</b></div>
     <div>Completed <b>${isFinite(ovPct) ? ovPct.toFixed(2) : s.pct.toFixed(2)}%${hasOv ? '*' : ''}</b></div>`;
@@ -534,7 +534,7 @@ function drawTextBlock(ctx, W, H, mapH, th) {
   const pctTxt = isFinite(ovPct) ? ovPct.toFixed(2) : s.pct.toFixed(1);
   const wantStats = els.showStats.checked && s.total > 0;
   const statsLine = wantStats
-    ? `${kmTxt} km ridden · ${pctTxt}% complete`
+    ? `${kmTxt} km explored · ${pctTxt}% complete`
     : '';
 
   const f = mapH / H;
