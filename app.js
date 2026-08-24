@@ -26,7 +26,7 @@ const state = {
 
 const els = {};
 ['dropzone','fileInput','fileInfo','statsCard','statsBody','theme','customColors',
- 'titleText','subtitleText','showStats','showBoundary','showOsm','osmStatus','areaSelect','areaRow','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
+ 'titleText','subtitleText','showStats','showBoundary','showOsm','osmStatus','areaSelect','areaRow','ovKm','ovPct','overrideRow','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
  'lineWidth','zoomPad','mapFrac','downloadBtn','previewLink','recenterBtn','posterWrap',
  'poster','emptyState','toolbar','zoomLabel'].forEach(id => els[id] = document.getElementById(id));
 
@@ -381,11 +381,17 @@ function activeStats() {
 function updateStats() {
   const s = activeStats();
   const fmt = km => km >= 100 ? km.toFixed(0) : km.toFixed(1);
+  const ovKm = parseFloat(els.ovKm.value), ovPct = parseFloat(els.ovPct.value);
+  const hasOv = isFinite(ovKm) || isFinite(ovPct);
+  els.overrideRow.hidden = !state.stats;
   els.statsBody.innerHTML = `
-    <div>Unique ridden <b>${fmt(s.unique)} km</b></div>
+    <div>Unique ridden <b>${isFinite(ovKm) ? ovKm.toFixed(2) : fmt(s.unique)} km${hasOv ? '*' : ''}</b></div>
     <div>Remaining <b>${fmt(s.remaining)} km</b></div>
     <div>Total network <b>${fmt(s.total)} km</b></div>
-    <div>Completed <b>${s.pct.toFixed(2)}%</b></div>`;
+    <div>Completed <b>${isFinite(ovPct) ? ovPct.toFixed(2) : s.pct.toFixed(2)}%${hasOv ? '*' : ''}</b></div>`;
+  if (hasOv && state.stats) {
+    els.statsBody.innerHTML += '<div class="hint">* overridden from wandrer.earth</div>';
+  }
 }
 function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -521,9 +527,14 @@ function drawTextBlock(ctx, W, H, mapH, th) {
   const title = els.titleText.value.trim();
   const subtitle = els.subtitleText.value.trim();
   const s = activeStats();
+  const ovKm = parseFloat(els.ovKm.value), ovPct = parseFloat(els.ovPct.value);
+  const kmTxt = isFinite(ovKm)
+    ? (ovKm >= 100 ? ovKm.toFixed(0) : ovKm.toFixed(ovKm < 10 ? 2 : 1))
+    : s.unique.toFixed(s.unique >= 100 ? 0 : 1);
+  const pctTxt = isFinite(ovPct) ? ovPct.toFixed(2) : s.pct.toFixed(1);
   const wantStats = els.showStats.checked && s.total > 0;
   const statsLine = wantStats
-    ? `${s.unique.toFixed(s.unique >= 100 ? 0 : 1)} km ridden · ${s.pct.toFixed(1)}% complete`
+    ? `${kmTxt} km ridden · ${pctTxt}% complete`
     : '';
 
   const f = mapH / H;
@@ -773,6 +784,8 @@ els.areaSelect.addEventListener('change', () => {
 });
 for (const id of ['titleText','subtitleText','showStats'])
   els[id].addEventListener('input', scheduleRender);
+els.ovKm.addEventListener('input', () => { updateStats(); scheduleRender(); });
+els.ovPct.addEventListener('input', () => { updateStats(); scheduleRender(); });
 
 let refitTimer = null;
 els.zoomPad.addEventListener('input', () => {
