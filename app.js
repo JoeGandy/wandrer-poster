@@ -280,8 +280,10 @@ function parseKml(text) {
     const abox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
     for (const ln of lines) {
       const p = ln.pts;
-      const mid = p[Math.floor(p.length / 4) * 2]; // midpoint vertex (x,y)
-      if (!pointInPoly(mid, pg.pts)) continue;
+      if (!p || p.length < 4) continue;
+      const mi = Math.floor(p.length / 4) * 2; // midpoint vertex index (x at mi, y at mi+1)
+      const midX = p[mi], midY = p[mi + 1];
+      if (!pointInPoly(midX, midY, pg.pts)) continue;
       for (let i = 0; i < p.length - 2; i += 2) {
         if (p[i] < abox.minX) abox.minX = p[i];
         if (p[i+1] < abox.minY) abox.minY = p[i+1];
