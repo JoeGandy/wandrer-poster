@@ -26,15 +26,15 @@ const state = {
 
 const els = {};
 ['dropzone','fileInput','fileInfo','statsCard','statsBody','theme','customColors',
- 'titleText','subtitleText','showStats','showBoundary','showOsm','osmStatus','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
+ 'titleText','subtitleText','showStats','showBoundary','showOsm','osmStatus','areaSelect','areaRow','cBg','cTraveled','cUntraveledPaved','cUntraveledUnpaved',
  'lineWidth','zoomPad','mapFrac','downloadBtn','previewLink','recenterBtn','posterWrap',
  'poster','emptyState','toolbar','zoomLabel'].forEach(id => els[id] = document.getElementById(id));
 
 // ---------- themes ----------
 const THEMES = {
-  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#ffaa00', osmRoad:'#e2e4e8' },
-  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#ffb340', osmRoad:'#252b38' },
-  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#c9922d', osmRoad:'#dfd5c2' },
+  light: { bg:'#ffffff', text:'#232323', sub:'#777777', traveled:'#47ad5f', untraveled:'#c01c28', unpaved:'#c01c28', osmRoad:'#e2e4e8' },
+  dark:  { bg:'#10131a', text:'#f2f2f2', sub:'#98a0ad', traveled:'#5fc483', untraveled:'#e04747', unpaved:'#e04747', osmRoad:'#252b38' },
+  paper: { bg:'#f5eedd', text:'#3d3428', sub:'#8a7c64', traveled:'#3e7d54', untraveled:'#bf4b36', unpaved:'#bf4b36', osmRoad:'#dfd5c2' },
 };
 function currentTheme() {
   const t = els.theme.value;
@@ -261,13 +261,59 @@ function parseKml(text) {
   bb.minX -= 1; bb.minY -= 1; bb.maxX += 1; bb.maxY += 1; // guard zero-size
 
   const total = dist.traveled + dist.untraveled + dist.unpaved;
+
+  // Per-area stats: assign each segment to the boundary polygon containing its midpoint,
+  // dedup traveled km on a ~5 m grid (Wandrer counts unique km).
+  function pointInPoly(x, y, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+      const xi = pts[i], yi = pts[i+1], xj = pts[j], yj = pts[j+1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  const GRID = 5; // metres
+  const areas = polys.map(pg => {
+    const agg = { traveled: 0, untraveled: 0, unpaved: 0 };
+    const seen = new Set();
+    let uniqKm = 0;
+    const abox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    for (const ln of lines) {
+      const p = ln.pts;
+      const mid = p[Math.floor(p.length / 4) * 2]; // midpoint vertex (x,y)
+      if (!pointInPoly(mid, pg.pts)) continue;
+      for (let i = 0; i < p.length - 2; i += 2) {
+        if (p[i] < abox.minX) abox.minX = p[i];
+        if (p[i+1] < abox.minY) abox.minY = p[i+1];
+        if (p[i] > abox.maxX) abox.maxX = p[i];
+        if (p[i+1] > abox.maxY) abox.maxY = p[i+1];
+        const lon1 = invProj(p[i], p[i+1]), lon2 = invProj(p[i+2], p[i+3]);
+        const d = haversineKm(lon1[0], lon1[1], lon2[0], lon2[1]);
+        agg[ln.bucket] += d;
+        if (ln.bucket === 'traveled') {
+          const kax = Math.round(p[i]   * Math.cos(Math.asin(Math.tanh(p[i+1]/R))) / GRID);
+          const kay = Math.round(p[i+1] / GRID);
+          const kbx = Math.round(p[i+2] * Math.cos(Math.asin(Math.tanh(p[i+3]/R))) / GRID);
+          const kby = Math.round(p[i+3] / GRID);
+          if (kax===kbx && kay===kby) continue;
+          const key = kax<kbx||(kax===kbx&&kay<kby) ? `${kax},${kay}|${kbx},${kby}` : `${kbx},${kby}|${kax},${kay}`;
+          if (!seen.has(key)) { seen.add(key); uniqKm += d; }
+        }
+      }
+    }
+    const rem = agg.untraveled + agg.unpaved;
+    const tot = uniqKm + rem;
+    return { unique: uniqKm, remaining: rem, total: tot,
+             pct: tot > 0 ? 100*uniqKm/tot : 0, bbox: abox };
+  });
+
   return { lines, polys, styles, bbox: bbl.minX !== Infinity ? bbl : bb, fullBbox: bb,
     stats: {
       traveled: dist.traveled, untraveledPaved: dist.untraveled,
       untraveledUnpaved: dist.unpaved, total,
       pct: total > 0 ? 100 * dist.traveled / total : 0,
       nPoints, nSegs,
-    } };
+    }, areas };
 }
 
 // ---------- file loading ----------
@@ -295,20 +341,49 @@ async function loadFile(file) {
     els.recenterBtn.disabled = false;
 
     const s = state.stats;
-    const fmt = km => km >= 100 ? km.toFixed(0) : km.toFixed(1);
     els.fileInfo.innerHTML = `<b>${escapeHtml(file.name)}</b><br>${state.lines.length.toLocaleString()} track segments loaded`;
-    els.statsBody.innerHTML = `
-      <div>Road network <b>${fmt(s.total)} km</b></div>
-      <div>Ridden <b>${fmt(s.traveled)} km</b></div>
-      <div>Remaining · paved <b>${fmt(s.untraveledPaved)} km</b></div>
-      <div>Remaining · unpaved <b>${fmt(s.untraveledUnpaved)} km</b></div>
-      <div>Completed <b>${s.pct.toFixed(1)}%</b></div>`;
+
+    // Area picker — one entry per boundary polygon with content
+    if (state.areas && state.areas.some(a => a.total > 0)) {
+      els.areaSelect.innerHTML = '<option value="-1">All areas</option>' +
+        state.areas.map((a, i) =>
+          a.total > 0 ? `<option value="${i}">Area ${i+1} — ${a.pct.toFixed(1)}%</option>` : ''
+        ).join('');
+      els.areaRow.hidden = false;
+    } else {
+      els.areaRow.hidden = true;
+    }
+    updateStats();
     scheduleRender();
     fetchOsmRoads(); // async — renders basemap when done
   } catch (err) {
     console.error(err);
     els.fileInfo.innerHTML = `<span style="color:#e05252">⚠ ${escapeHtml(err.message)}</span>`;
   }
+}
+
+// Stats for the currently selected area (or all areas when -1)
+function activeStats() {
+  const idx = parseInt(els.areaSelect.value, 10);
+  if (idx >= 0 && state.areas && state.areas[idx] && state.areas[idx].total > 0) {
+    const a = state.areas[idx];
+    return { unique: a.unique, remaining: a.remaining, total: a.total, pct: a.pct };
+  }
+  // Aggregate: unique km deduped globally is complex; sum area-uniques + remaining
+  let uniq = 0, rem = 0;
+  for (const a of (state.areas || [])) { uniq += a.unique; rem += a.remaining; }
+  const tot = uniq + rem;
+  return { unique: uniq, remaining: rem, total: tot, pct: tot > 0 ? 100*uniq/tot : 0 };
+}
+
+function updateStats() {
+  const s = activeStats();
+  const fmt = km => km >= 100 ? km.toFixed(0) : km.toFixed(1);
+  els.statsBody.innerHTML = `
+    <div>Unique ridden <b>${fmt(s.unique)} km</b></div>
+    <div>Remaining <b>${fmt(s.remaining)} km</b></div>
+    <div>Total network <b>${fmt(s.total)} km</b></div>
+    <div>Completed <b>${s.pct.toFixed(2)}%</b></div>`;
 }
 function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -383,7 +458,7 @@ function render(ctx, W, H) {
       for (const road of roads) {
         const p = road.pts;
         ctx.moveTo(tx(p[0]), ty(p[1]));
-        for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i]));
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
       }
       ctx.stroke();
     }
@@ -395,7 +470,7 @@ function render(ctx, W, H) {
       for (const road of roads) {
         const p = road.pts;
         ctx.moveTo(tx(p[0]), ty(p[1]));
-        for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i]));
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
       }
       ctx.stroke();
     }
@@ -425,13 +500,13 @@ function render(ctx, W, H) {
       if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
       const p = ln.pts;
       ctx.moveTo(tx(p[0]), ty(p[1]));
-      for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i]));
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
     }
     for (const pg of state.polys) {
       if (pg.bucket !== bucket) continue;
       const p = pg.pts;
       ctx.moveTo(tx(p[0]), ty(p[1]));
-      for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i]));
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
       ctx.closePath();
     }
     ctx.stroke();
@@ -443,9 +518,10 @@ function render(ctx, W, H) {
 function drawTextBlock(ctx, W, H, mapH, th) {
   const title = els.titleText.value.trim();
   const subtitle = els.subtitleText.value.trim();
-  const wantStats = els.showStats.checked && state.stats;
+  const s = activeStats();
+  const wantStats = els.showStats.checked && s.total > 0;
   const statsLine = wantStats
-    ? `${state.stats.traveled.toFixed(state.stats.traveled >= 100 ? 0 : 1)} km ridden · ${state.stats.pct.toFixed(1)}% complete`
+    ? `${s.unique.toFixed(s.unique >= 100 ? 0 : 1)} km ridden · ${s.pct.toFixed(1)}% complete`
     : '';
 
   const f = mapH / H;
@@ -683,6 +759,16 @@ els.showBoundary.addEventListener('change', () => {
   scheduleRender();
 });
 if (els.showOsm) els.showOsm.addEventListener('change', scheduleRender);
+els.areaSelect.addEventListener('change', () => {
+  const idx = parseInt(els.areaSelect.value, 10);
+  if (idx >= 0 && state.areas[idx] && state.areas[idx].bbox) {
+    fitTo(state.areas[idx].bbox);
+  } else {
+    fitView();
+  }
+  updateStats();
+  scheduleRender();
+});
 for (const id of ['titleText','subtitleText','showStats'])
   els[id].addEventListener('input', scheduleRender);
 
