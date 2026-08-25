@@ -554,7 +554,7 @@ function render(ctx, W, H) {
   const RIDDEN_ORDER = ['untraveled', 'unpaved', 'traveled'];
 
   // Pass 1: casing (background colour, slightly wider) for every ridden segment
-  ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.strokeStyle = th.bg;
   ctx.lineWidth = lw * 1.35;
   ctx.beginPath();
@@ -572,7 +572,7 @@ function render(ctx, W, H) {
   ctx.stroke();
 
   // Pass 2: fill each bucket's colour
-  ctx.lineCap = 'butt';
+  ctx.lineCap = 'round';
   for (const bkt of RIDDEN_ORDER) {
     const stroke = th[bkt];
     if (!stroke) continue;
