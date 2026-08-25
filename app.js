@@ -549,25 +549,37 @@ function render(ctx, W, H) {
     ctx.globalAlpha = 1;
   }
 
-  for (const bucket of BUCKET_ORDER) {
-    const themed = th[bucket];
-    let stroke = themed || null;
-    let width = lw;
+  // Ridden roads — two-pass draw (casing then fill) so junctions between
+  // different colours don't show overlapping round caps/blobs.
+  const RIDDEN_ORDER = ['untraveled', 'unpaved', 'traveled'];
 
-    if (bucket === 'boundary') {
-      if (!showBoundary) continue;
-      const st = state.styles['achievementBoundary'];
-      stroke = (st && st.color) || (themed || '#888888');
-      width = lwBoundary;
-    }
-    if (!stroke) continue;
-
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-
+  // Pass 1: casing (background colour, slightly wider) for every ridden segment
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = th.bg;
+  ctx.lineWidth = lw * 1.35;
+  ctx.beginPath();
+  for (const bkt of RIDDEN_ORDER) {
+    if (!th[bkt]) continue;
     for (const ln of state.lines) {
-      if (ln.bucket !== bucket) continue;
+      if (ln.bucket !== bkt) continue;
+      const [a,b,c,d] = ln.bbox;
+      if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
+      const p = ln.pts;
+      ctx.moveTo(tx(p[0]), ty(p[1]));
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
+    }
+  }
+  ctx.stroke();
+
+  // Pass 2: fill each bucket's colour
+  for (const bkt of RIDDEN_ORDER) {
+    const stroke = th[bkt];
+    if (!stroke) continue;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    for (const ln of state.lines) {
+      if (ln.bucket !== bkt) continue;
       const [a,b,c,d] = ln.bbox;
       if (c < vx0 || a > vx1 || d < vy0 || b > vy1) continue;
       const p = ln.pts;
@@ -575,7 +587,24 @@ function render(ctx, W, H) {
       for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
     }
     for (const pg of state.polys) {
-      if (pg.bucket !== bucket) continue;
+      if (pg.bucket !== bkt) continue;
+      const p = pg.pts;
+      ctx.moveTo(tx(p[0]), ty(p[1]));
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
+      ctx.closePath();
+    }
+    ctx.stroke();
+  }
+
+  // Boundary polygons (optional, drawn last so they sit on top)
+  if (showBoundary) {
+    const st = state.styles['achievementBoundary'];
+    const stroke = (st && st.color) || th.sub || '#888888';
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lwBoundary;
+    ctx.beginPath();
+    for (const pg of state.polys) {
+      if (pg.bucket !== 'boundary') continue;
       const p = pg.pts;
       ctx.moveTo(tx(p[0]), ty(p[1]));
       for (let i = 2; i < p.length; i += 2) ctx.lineTo(tx(p[i]), ty(p[i + 1]));
