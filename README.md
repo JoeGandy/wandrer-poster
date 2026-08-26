@@ -1,10 +1,12 @@
 # Wandrer Poster
 
+**https://joegandy.github.io/wandrer-poster/**
+
 Turn a [wandrer.earth](https://wandrer.earth/) KMZ export into a framed
 **50 × 70 cm poster** — the kind that fits a standard frame.
 
 Everything runs client-side in your browser. Your ride data never leaves your
-machine (the OSM road network is fetched separately for the basemap).
+machine; the OSM street network is fetched separately to provide the basemap.
 
 ## Use it
 
@@ -24,9 +26,8 @@ so printers read it as exactly 50 × 70 cm with no scaling needed.
 
 - Drag & drop KMZ/KML parsing (JSZip, vendored)
 - True 300 DPI canvas rendering at exact physical dimensions
-- **OSM basemap** — full street network fetched from OpenStreetMap via a
-  same-origin proxy (no CORS), with cartographic road weight hierarchy and
-  casing halos
+- **OSM basemap** — full street network fetched from OpenStreetMap with
+  cartographic road weight hierarchy and casing halos
 - **Per-area stats** — segments assigned to Wandrer boundary polygons;
   traveled km de-duplicated on a 5 m grid to approximate Wandrer's
   "unique kilometres"
@@ -52,7 +53,8 @@ python3 dev_server.py 8080
 ```
 
 The proxy forwards Overpass API requests to avoid CORS issues in the browser.
-Without it, the "Show road network" toggle will fail with a CORS error.
+Without it, the "Show road network" toggle will fall back to direct Overpass
+endpoints (works in most browsers but may occasionally hit CORS errors).
 
 ## Architecture
 
@@ -73,7 +75,7 @@ vercel.json         — Vercel function config (60s maxDuration)
 5. Traveled km de-duplicated per area on a 5 m grid
 6. OSM roads fetched via `/api/osm` proxy, grouped by highway class
 7. Canvas render: background fill → OSM basemap (casing + fill passes) →
-   ridden roads → border frame → typography block
+   ridden roads (casing + fill passes) → border frame → typography block
 8. Export: offscreen canvas at 5906×8268 → PNG → pHYs chunk injection → download
 
 ## Why the numbers might differ from wandrer.earth
